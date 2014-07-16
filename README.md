@@ -10,9 +10,10 @@ Howto install
 tested on debian: nginx-extras 1.4.1
 apt-get install nginx-extras
 
-* install lua and luarocks
+* install lua, lua-sec, lua-json, and luarocks
 tested on debian: lua5.1 (5.1.5-4) liblua5.1-dev luarocks (2.0.9-1)
-apt-get install lua5.1, liblua5.1-dev luarocks
+lua-sec (0.4.1-1) lua-json (1.3-1)
+apt-get install lua5.1 liblua5.1-dev luarocks lua-sec lua-json
 
 * install luasoap thanks to luarocks
 luasoap debian version is buggy on debian wheezy 27/11/2013
@@ -25,12 +26,28 @@ luarocks install luasoap
 in /etc/nginx/nginx.conf, add this line into the http{ } directive:
 lua_package_path "/opt/sso/?.lua;;"; # inform nginx where to find lua standard libraries
 
+
+in /etc/nginx/sites-enabled/default, in http section (outside of server section), add:
+lua_shared_dict lemonSharedConf 1m;
+lua_shared_dict lemonSharedSession 100m;
+
+So 1Mb will be used for configuration, and 100Mb for sessions
+
 in /etc/nginx/sites-enabled/default, configure the desired location like this one (reverse proxy):
         location / {
                 access_by_lua_file /opt/sso/nginx-handler-access.lua;
                 #try_files $uri $uri/ /index.html;
                 proxy_pass http://backend_host:80/;
         }
+
+Optional step:
+Additionally, you can put this directive in the location scope:
+lua_code_cache off;
+So the code will be loaded each time a request is done.
+Warning: this will impact performances badly
+(the bad cookie recuperation due to cookie caching is solved with the
+directive dofile for loading the configuration file)
+
 
 * fill the configuration file:
 /opt/sso/nginx-handler-conf.lua
@@ -39,6 +56,9 @@ in most case, the conf['lemon_portal'] variable should be sufficient
 * configure lemonldap to hold SOAP configuration backend AND SOAP session backend
 http://lemonldap-ng.org/documentation/latest/soapconfbackend
 http://lemonldap-ng.org/documentation/latest/soapsessionbackend
+
+* add a virtual host corresponding to your nginx site with an adapted port
+
 
 
 features available
@@ -51,7 +71,6 @@ features available
 drawbacks / improvements
 ------------------------
 (ordered by priority: from the most urgent / grave to the less urgent / grave)
-* no cache mechanism: each access to a page implies 2 SOAP requests. (can be improved)
 * limited support for regexp. For example:
    - locations like ^/*.(css|js) is not working (and can never be unless missing regex features are coded)
    - no regexp at all for rules. $uid =~ /somebody/ does not work

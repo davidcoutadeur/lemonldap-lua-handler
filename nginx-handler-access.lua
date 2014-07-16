@@ -1,7 +1,16 @@
 -- LUA SSO handler module for LemonLDAP::NG
 
 -- Some variable declarations.
-local handlerConf = require('nginx-handler-conf')
+
+local json = require "json"
+
+--local handlerConf = require('nginx-handler-conf')
+local path = string.sub( debug.getinfo(1).short_src,
+                         1,
+                         string.len(debug.getinfo(1).short_src)-24 )
+local confFile = path..'nginx-handler-conf.lua'
+ngx.log(ngx.INFO,"loading configuration file "..confFile)
+local handlerConf = dofile( confFile )
 
 -------------------
 -- base64 functions
@@ -68,21 +77,29 @@ end
 -- parse configuration functions
 --------------------------------
 
-function parse_locationRules (res)
+function parse_locationRules (lconf)
   local rules = {}
   local nb = 1
-  for i, elem in ipairs (res) do
-    if elem.tag ~= "item" then
-      if res.tag == handlerConf['fqdn'] then
-        rules[nb] = { elem.tag, elem[1] }
-        nb = nb + 1
-      end
-    else
-      for k, val in ipairs (elem) do
-        if res.tag == handlerConf['fqdn'] then
-          if val.tag == "key" then
-            rules[nb] = { elem[k][1], elem[(k+1)][1] }
-            nb = nb + 1
+
+
+  for a, node in ipairs (lconf) do
+    for b, res in ipairs (node) do
+      if node.tag == "locationRules" then
+        rules[res.tag] = {} -- initialize vhost rules table
+        nb = 1
+        for i, elem in ipairs (res) do
+          if elem.tag ~= "item" then -- only 1 rule
+            nb = 1
+            rules[res.tag][nb] = { elem.tag, elem[1] } 
+                                    -- rules[vhost][numRule] = { ruleName, ruleValue}
+          else -- multiple rules to parse
+            for k, val in ipairs (elem) do
+              if val.tag == "key" then
+                rules[res.tag][nb] = { elem[k][1], elem[(k+1)][1] }
+                                    -- rules[vhost][numRule] = { ruleName, ruleValue}
+                nb = nb + 1
+              end
+            end
           end
         end
       end
@@ -91,36 +108,36 @@ function parse_locationRules (res)
   return rules
 end
 
-function parse_exportedHeaders (res)
+function parse_exportedHeaders (lconf)
   local headers = {}
-  local found = false
-  for i, elem in ipairs (res) do
-    if res.tag == handlerConf['fqdn'] then
-      headers[elem.tag] = elem[1]
-      found=true
+
+  for i, elem in ipairs (lconf) do
+    for j, res in ipairs (elem) do
+      if elem.tag == "exportedHeaders" then
+        headers[res.tag] = {} -- initialize vhost headers table
+        for i, elem in ipairs (res) do
+          headers[res.tag][elem.tag] = elem[1] -- options[vhost][optName] = optVal
+        end
+      end
     end
   end
-  if found == true then
-    return headers
-  else
-    return nil
-  end
+  return headers
 end
 
-function parse_vhostOptions (res)
+function parse_vhostOptions (lconf)
   local options = {}
-  local found = false
-  for i, elem in ipairs (res) do
-    if res.tag == handlerConf['fqdn'] then
-      options[elem.tag] = elem[1]
-      found = true
+
+  for i, elem in ipairs (lconf) do
+    for j, res in ipairs (elem) do
+      if elem.tag == "vhostOptions" then
+        options[res.tag] = {} -- initialize vhost options table
+        for i, elem in ipairs (res) do
+          options[res.tag][elem.tag] = elem[1] -- options[vhost][optName] = optVal
+        end
+      end
     end
   end
-  if found == true then
-    return options
-  else
-    return nil
-  end
+  return options
 end
 
 
@@ -138,26 +155,11 @@ function get_soap_configuration ()
 	entries = {
 	}
   }
-  for i, elem in ipairs (ent[1]) do
-    for j, res in ipairs (elem) do
-      if elem.tag == "exportedHeaders" then
-        res = parse_exportedHeaders(res)
-        if res ~= nil then -- if parsing the current vhost
-          conf["exportedHeaders"] = res
-        end
-      elseif  elem.tag == "locationRules" then
-        res = parse_locationRules(res)
-        if #res ~= 0 then -- if parsing the current vhost
-          conf["locationRules"] = res
-        end
-      elseif  elem.tag == "vhostOptions" then
-        res = parse_vhostOptions(res)
-        if res ~= nil then -- if parsing the current vhost
-          conf["vhostOptions"] = res
-        end
-      end
-    end
-  end
+
+  conf["locationRules"] = parse_locationRules(ent[1])
+  conf["exportedHeaders"] = parse_exportedHeaders(ent[1])
+  conf["vhostOptions"] = parse_vhostOptions(ent[1])
+
   ngx.log(ngx.INFO,"Soap configuration loaded")
   return conf
 end
@@ -224,13 +226,14 @@ function compute_rule(conf, session, rule)
 end
 
 function compute_access(conf, session)
+  local config = conf["locationRules"][handlerConf['fqdn']]
   local access = 403 -- by default, access is *not* granted
   local matching = false -- by default, no matching rule has applied
   local expression = "" -- the rule to match against the request url
   local default = "" -- the default matching rule is not filled yet
 
   -- parse locationRules
-  for i, elem in ipairs (conf["locationRules"]) do
+  for i, elem in ipairs (config) do
     expression = elem[1]
     expression = string.gsub(expression, '%(%?%#[^)]*%)', "") -- delete starting comment
     expression = string.gsub(expression, '\\', "%%") -- change \ escape character to %
@@ -262,11 +265,12 @@ end
 ----------
 
 function set_headers (conf, session)
+  local config = conf["exportedHeaders"][handlerConf['fqdn']]
   local finalkey = ""
   local finalvalue = ""
 
   if session ~= nil then -- no need to compute headers if no session available
-    for key,value in pairs(conf["exportedHeaders"]) do
+    for key,value in pairs(config) do
       finalkey = key
       finalvalue = value
       for k,val in pairs(session) do
@@ -286,7 +290,8 @@ end
 ----------
 
 function compute_vhost_option(conf)
-  for key,value in pairs(conf["vhostOptions"]) do
+  local config = conf["vhostOptions"][handlerConf['fqdn']]
+  for key,value in pairs(config) do
     if key == "vhostMaintenance" then -- default: 0
       if value == "1" then -- set maintenance
         ngx.log(ngx.INFO,"maintenance mode")
@@ -313,6 +318,10 @@ function compute_vhost_option(conf)
 end
 
 
+
+
+
+
 --------------
 -- entry point
 --------------
@@ -320,13 +329,67 @@ end
 
 local code = 403 -- by default, access is forbidden
 
-local conf = get_soap_configuration()
-if handlerConf['cookie'] ~= nil then
-  ngx.log(ngx.INFO,"cookie: "..handlerConf['cookie'])
-  session = get_soap_session(handlerConf['cookie'])
+
+--
+-- Get configuration from cache or lemon soap portal
+--
+local lemonSharedConf = handlerConf['lemonSharedConf']
+local confValue = lemonSharedConf:get('lemonSharedConf')
+                                          -- get configuration from local cache
+local conf = nil -- final configuration
+if confValue == nil or
+   os.time() > json.decode( confValue )['expires'] then
+                       -- conf not in cache or cache expired
+  conf = get_soap_configuration() -- get configuration from lemon portal
+  conf['expires'] = os.time() + 60*handlerConf['lemonSharedConfExpires']
+  local succ, err, forcible =
+                      lemonSharedConf:set("lemonSharedConf", json.encode(conf))
+                                                  -- set configuration in cache
+  if succ ~= true then
+    ngx.log(ngx.ERR,"storing configuration into local cache: "..err)
+    ngx.exit(ngx.HTTP_FORBIDDEN)
+  end
+else
+  ngx.log(ngx.INFO,"Configuration loading from cache")
+  conf = json.decode( confValue ) -- get configuration from cache
 end
 
-if compute_vhost_option(conf) ~= "maintenance" then
+
+--
+-- Get session from cache or lemon soap portal
+--
+if handlerConf['cookie'] ~= nil then -- if lemonCookie is present
+  ngx.log(ngx.INFO,"cookie: "..handlerConf['cookie'])
+
+  local lemonSharedSession = handlerConf['lemonSharedSession']
+  local sessionValue = lemonSharedSession:get(handlerConf['cookie'])
+                                                -- get session from local cache
+  if sessionValue == nil or
+     os.time() > json.decode( sessionValue )['expires'] then
+                                      -- session not in cache or cache expired
+    session = get_soap_session(handlerConf['cookie'])
+                                               -- get session from lemon portal
+    session['expires'] = os.time() + 60*handlerConf['lemonSharedSessionExpires']
+    
+    if next(session) ~= nil then -- session has been found
+      local succ, err, forcible =
+            lemonSharedSession:set(handlerConf['cookie'], json.encode(session))
+                                                  -- set session in cache
+      if succ ~= true then
+        ngx.log(ngx.ERR,"storing session into local cache: "..err)
+        ngx.exit(ngx.HTTP_FORBIDDEN)
+      end
+    end
+  else -- session already in cache
+    ngx.log(ngx.INFO,"Session loading from cache")
+    session = json.decode( sessionValue ) -- get session from cache
+  end
+end
+
+
+-- checking if the vhost is declared in LemonLDAP::NG and if maintenance mode
+if conf["vhostOptions"][handlerConf['fqdn']] ~= nil
+     and compute_vhost_option(conf) ~= "maintenance" then
   code = compute_access(conf, session)
 else
   ngx.exit(ngx.HTTP_SERVICE_UNAVAILABLE) -- service unavailable = 503
@@ -336,9 +399,13 @@ if code == 200 then
   return 
 elseif code == 302 then
   ngx.redirect(handlerConf['lemon_portal'].."?url="..
-        enc(handlerConf['scheme']..'://'..handlerConf['fqdn']..':'..handlerConf['server_port']..handlerConf['request']))
+        enc(handlerConf['scheme']..'://'..handlerConf['fqdn']..':'..
+            handlerConf['server_port']..handlerConf['request']))
 elseif code == 403 then
   ngx.exit(ngx.HTTP_FORBIDDEN)
 end
+
+
+
 
 
