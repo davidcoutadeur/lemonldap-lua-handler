@@ -199,26 +199,31 @@ function compute_rule(conf, session, rule)
     access = 200
 
   else -- consider finalrule as perl expression
-    -- converting basic operations
-    finalrule = string.gsub(finalrule, ' eq ', ' == ')
-    finalrule = string.gsub(finalrule, ' ne ', ' ~= ')
-    finalrule = string.gsub(finalrule, ' gt ', ' > ')
-    finalrule = string.gsub(finalrule, ' lt ', ' < ')
-    finalrule = string.gsub(finalrule, ' ge ', ' >= ')
-    finalrule = string.gsub(finalrule, ' le ', ' <= ')
-    for key,value in pairs(session) do
-      finalrule = string.gsub(finalrule, '%$'..key, '"'..value..'"')
-    end
-    local perlexpression = loadstring('return '..finalrule)
-    if perlexpression == nil then -- fail to compile rule
-      ngx.log(ngx.INFO,"failed to compile rule: "..finalrule)
-      access = 403
-    elseif perlexpression () then
-      ngx.log(ngx.INFO,"acces granted for evaluated rule: "..finalrule)
-      access = 200
-    else -- evaluation failed, access is denied
-      ngx.log(ngx.INFO,"acces denied for evaluated rule: "..finalrule)
-      access = 403
+    if session ~= nil then
+      -- converting basic operations
+      finalrule = string.gsub(finalrule, ' eq ', ' == ')
+      finalrule = string.gsub(finalrule, ' ne ', ' ~= ')
+      finalrule = string.gsub(finalrule, ' gt ', ' > ')
+      finalrule = string.gsub(finalrule, ' lt ', ' < ')
+      finalrule = string.gsub(finalrule, ' ge ', ' >= ')
+      finalrule = string.gsub(finalrule, ' le ', ' <= ')
+      for key,value in pairs(session) do
+        finalrule = string.gsub(finalrule, '%$'..key, '"'..value..'"')
+      end
+      local perlexpression = loadstring('return '..finalrule)
+      if perlexpression == nil then -- fail to compile rule
+        ngx.log(ngx.INFO,"failed to compile rule: "..finalrule)
+        access = 403
+      elseif perlexpression () then
+        ngx.log(ngx.INFO,"acces granted for evaluated rule: "..finalrule)
+        access = 200
+      else -- evaluation failed, access is denied
+        ngx.log(ngx.INFO,"acces denied for evaluated rule: "..finalrule)
+        access = 403
+      end
+    else
+      ngx.log(ngx.INFO,"rule \""..finalrule.."\" applied, but user not found")
+      access = 302 -- no lemonldap session, redirecting to portal
     end
   end
 
