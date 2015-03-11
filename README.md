@@ -46,6 +46,12 @@ Warning: this will impact performances badly
 (the bad cookie recuperation due to cookie caching is solved with the
 directive dofile for loading the configuration file)
 
+Optional step:
+In server or location scope, you can add this line
+error_page 403 =302 https://auth.my-example.com/?lmError=403;
+So that you will be redirected to portal with a pretty unauthorized access message.
+
+
 
 * fill the configuration file:
 /opt/sso/nginx-handler-conf.lua

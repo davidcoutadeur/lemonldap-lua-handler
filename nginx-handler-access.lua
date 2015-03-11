@@ -191,6 +191,7 @@ function compute_rule(conf, session, rule)
     else
       ngx.log(ngx.INFO,"rule \"deny\" applied, but user not found")
       access = 302 -- no lemonldap session, redirecting to portal
+    end
 
   elseif string.lower(finalrule) == "skip" then
     ngx.log(ngx.INFO,"rule \"skip\" is applied")
