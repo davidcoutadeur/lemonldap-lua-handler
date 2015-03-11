@@ -10,10 +10,8 @@ Howto install
 tested on debian: nginx-extras 1.4.1
 apt-get install nginx-extras
 
-* install lua, lua-sec, lua-json, and luarocks
-tested on debian: lua5.1 (5.1.5-4) liblua5.1-dev luarocks (2.0.9-1)
-lua-sec (0.4.1-1) lua-json (1.3-1)
-apt-get install lua5.1 liblua5.1-dev luarocks lua-sec lua-json
+* install lua, luarocks (for dependancies and for installing luasoap), lua-sec, lua-json, and libexpat1-dev
+apt-get install luarocks lua-sec lua-json libexpat1-dev
 
 * install luasoap thanks to luarocks
 luasoap debian version is buggy on debian wheezy 27/11/2013
